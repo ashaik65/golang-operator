@@ -32,7 +32,7 @@ type ScalerSpec struct {
 	Start       int              `json:"start"`
 	End         int              `json:"end"`
 	Replicas    int              `json:"replicas"`
-	Deployments []NamespacedName `json:"deployments`
+	Deployments []NamespacedName `json:"deployments"`
 }
 
 type NamespacedName struct {
