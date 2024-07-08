@@ -18,8 +18,11 @@ package controller
 
 import (
 	"context"
+	"time"
 
+	v1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -39,7 +42,7 @@ type ScalerReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
+// TODO: Modify the Reconcile function to compare the state specified by
 // the Scaler object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
@@ -47,12 +50,46 @@ type ScalerReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.15.0/pkg/reconcile
 func (r *ScalerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	log.Info("Reconcile called", "Request.Namespace", req.Namespace, "Request.Name", req.Name)
+	scaler := &apiv1alpha1.Scaler{}
+	err := r.Get(ctx, req.NamespacedName, scaler)
+	if err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	return ctrl.Result{}, nil
+	startTime := scaler.Spec.Start
+	endTime := scaler.Spec.End
+	replicas := scaler.Spec.Replicas
+	currentHour := time.Now().UTC().Hour()
+
+	if currentHour >= startTime && currentHour <= endTime {
+		for _, deploy := range scaler.Spec.Deployments {
+			deployment := &v1.Deployment{}
+			err := r.Get(ctx, types.NamespacedName{
+				Namespace: deploy.Namespace,
+				Name:      deploy.Name,
+			}, deployment)
+			if err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != int32(replicas) {
+				// Update the number of replicas
+				deployment.Spec.Replicas = int32Ptr(int32(replicas))
+				err := r.Update(ctx, deployment)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+	}
+
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
+
+// Helper function to get a pointer to an int32
+func int32Ptr(i int32) *int32 { return &i }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ScalerReconciler) SetupWithManager(mgr ctrl.Manager) error {
